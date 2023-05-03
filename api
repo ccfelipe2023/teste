@@ -1,0 +1,1215 @@
+
+import requests
+import sqlite3
+import pyodbc
+import json
+
+server_rh = 'xxxxxxxxxxx'
+database_rh = 'xxxxxxxxxxx'
+username_rh = 'xxxxxxxxxxx'
+password_rh = 'xxxxxxxxxxx'
+conn_rh = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER='+server_rh+';DATABASE='+database_rh+';UID='+username_rh+';PWD='+ password_rh)
+
+token_pontoMais = 'xxxxxxxxxxx'
+
+### Abaixo: Dicionário Utilizado para montar o update que é feito na tabela colaboradores para colocar o código correto para uso no pontomais
+### caso nova unidade seja cadastrada no pontomais, utilizar a API para consultar os códigos a inserir manualmente na lista abaixo, rodando os scripts abaixo
+
+### import requests
+###
+### url = "https://api.pontomais.com.br/external_api/v1/teams?attributes=id,code,name,department&count=true&page={{page_number}}&per_page=10"
+###
+### payload={}
+### headers = {
+###   'access-token': '$2a$12$A3Dyu0Lq0/eD3kv6L3NBQu9EfEIrLtrChM7Hh5jANRiNS7Zsz5YEm'
+### }
+###
+### response = requests.request("GET", url, headers=headers, data=payload)
+###
+### print(response.text)
+###
+
+########a resposta será:
+########
+########"teams": [
+########    {
+########        "id": 9, ////<-codigo a copiar para equipe
+########        "code": "01", (código igual ao do metadados)
+########        "name": "Produto & TI", (nome igual ao do metadados)
+########        "department": {
+########            "id": 9, /// <- codigo a copiar para o departametno
+########            "code": "01",  (código igual ao do metadados)
+########            "name": "Departamento 1" (nome igual ao do metadados)
+########        }
+########    },
+########
+########
+
+### e
+
+###import requests
+###
+###url = "https://api.pontomais.com.br/external_api/v1/business_units?page={{page_number}}&per_page={{per_page_qtd}}&attributes=id,name"
+###
+###payload={}
+###headers = {
+###  'access-token': '{{client_token}}'
+###}
+###
+###response = requests.request("GET", url, headers=headers, data=payload)
+###
+###print(response.text)
+###
+###
+
+#######a resposta será:
+#######{
+#######  "business_units": [
+#######    {
+#######      "id": 1230, /// <- codigo a copiar para a unidade
+#######      "name": "Empresa Teste 1" (nome igual ao do metadados)
+#######    },
+#######    {
+#######      "id": 1231, /// <- codigo a copiar para a unidade
+#######      "name": "Empresa Teste 2" (nome igual ao do metadados)
+#######    },
+#######  ],
+#######  "meta": {
+#######    "now": 1531245762,
+#######    "ip": "127.0.0.1"
+#######  }
+#######}
+#######
+
+
+dicionario = {
+        "0003": {"unidade": "905858", "departamento": "975722", "equipe": "1087171"},
+        "0009": {"unidade": "905859", "departamento": "975723", "equipe": "1087162"},
+        "0010": {"unidade": "905860", "departamento": "975724", "equipe": "1087170"},
+        "0016": {"unidade": "905861", "departamento": "975726", "equipe": "1087168"},
+        "0012": {"unidade": "896388", "departamento": "966049", "equipe": "1074246"},
+        "0025": {"unidade": "905863", "departamento": "975728", "equipe": "1087167"},
+        "0026": {"unidade": "905864", "departamento": "975729", "equipe": "1087166"},
+        "0027": {"unidade": "905865", "departamento": "975730", "equipe": "1087165"},
+        "0028": {"unidade": "905866", "departamento": "975732", "equipe": "1087164"},
+        "0011": {"unidade": "894512", "departamento": "965412", "equipe": "1075446"},
+        "0007": {"unidade": "905867", "departamento": "975733", "equipe": "1051667"},
+        "0024": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0004": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0006": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0008": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0013": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0014": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0015": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0018": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0019": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0002": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0020": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0021": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0022": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0023": {"unidade": "906886", "departamento": "977017", "equipe": "1088580"},
+        "0029": {"unidade": "905863", "departamento": "975728", "equipe": "1087167"},
+        "0030": {"unidade": "916008", "departamento": "990374", "equipe": "1108075"},
+        "0031": {"unidade": "917382", "departamento": "992562", "equipe": "1110817"},
+        "0032": {"unidade": "917383", "departamento": "992561", "equipe": "1110819"},
+        "0033": {"unidade": "917384", "departamento": "992560", "equipe": "1110821"}
+
+    }
+
+
+def create_table(conn, create_table_sql):
+    """ create a table from the create_table_sql statement
+    :param conn: Connection object
+    :param create_table_sql: a CREATE TABLE statement
+    :return:
+    """
+    try:
+        c = conn.cursor()
+        c.execute(create_table_sql)
+    except:
+        print("Erro")
+
+def buscaColaboradoresNoMetadados(estaData):
+    print("Inciando busca de dados (1/3)")
+    cursor = conn_rh.cursor()
+    sql_a_executar="select A.PESSOA, C.CPF, C.NOME, A.UNIDADE, B.DESCRICAO20, A.DATAADMISSAO, A.CARGO, C.PIS FROM[dbo].[RHCONTRATOS] A  LEFT JOIN    RHUNIDADES    B    ON    B.UNIDADE = A.UNIDADE LEFT    JOIN    RHPESSOAS    C    ON    C.PESSOA = A.PESSOA    AND    C.EMPRESA = A.EMPRESA WHERE   A.DATARESCISAO    IS    NULL and A.UNIDADE<>'0004' AND A.DATAADMISSAO>'{}' ".format(estaData)
+    cursor.execute(sql_a_executar)
+    print(sql_a_executar)
+    num_colaborador_print = 0
+    for row in cursor:
+        print("Pessoa Encontrada.")
+        print("=> Numero deste colaborador : {}".format(num_colaborador_print))
+        id_pessoa_meta = row[0]
+        cpf_meta = row[1]
+        nome_meta = row[2]
+        unidade_meta = row[3]
+        desc_unidade_meta = row[4]
+        dataadmissao_meta = row[5]
+        cargo_meta = row[6]
+        pis_meta = row[7]
+        sql_inserir = "INSERT OR IGNORE  INTO colaboradores (id_pessoa_metadados,cpf,nome,unidade_metadados,desc_unidade_metadados, data_admissao_meta,cargo_metadados, nis) VALUES('{}','{}','{}','{}','{}','{}','{}','{}')".format(id_pessoa_meta,cpf_meta,nome_meta,unidade_meta,desc_unidade_meta,dataadmissao_meta,cargo_meta,pis_meta)
+        cur = conn.cursor()
+        cur.execute(sql_inserir)
+        print("--> Inserindo na tabela de colaboradores com o SQL: {}".format(sql_inserir))
+        conn.commit()
+        num_colaborador_print = num_colaborador_print + 1
+        print("---> Ok.")
+        print("   ")
+        print("   ")
+
+
+
+    print("Iniciando Loop do Dicionário para dar Update.... (2/3)")
+    for estaLinha in dicionario:
+        unidade_meta = estaLinha
+        businessunit_pm = dicionario[estaLinha]['unidade']
+        depto_pm = dicionario[estaLinha]['departamento']
+        team_pm = dicionario[estaLinha]['equipe']
+        print("Montando update unidade {}, departamento {}, equipe {}".format(businessunit_pm,depto_pm,team_pm))
+        ccusto_pm = '923560'
+        turno_pm = '1920029'
+        sql_update = "UPDATE colaboradores set business_unit_pontomais='{}', department_pontomais='{}', teams_pontomais='{}', centrocusto_pontomais='{}', turno_pontomais='{}'  WHERE  unidade_metadados='{}' ".format(
+            businessunit_pm, depto_pm, team_pm, ccusto_pm, turno_pm, unidade_meta)
+        print("==> Executando update com o SQL:  {}".format(sql_update))
+        cur_update1 = conn.cursor()
+        cur_update1.execute(sql_update)
+        conn.commit()
+        print("---> Ok.")
+        print("   ")
+
+    print("Dando update para traduzir o código do cargo para ponto mais..... (3/3)")
+    sql_update2 = "UPDATE colaboradores SET cargo_pontomais=(SELECT id_pontomais from job_title where id_metadados=cargo_metadados) AND cargo_pontomais IS NULL"
+    print("==> {}".format(sql_update2))
+    cur_update2 = conn.cursor()
+    cur_update2.execute(sql_update2)
+    conn.commit()
+    print("---> Ok.")
+
+
+
+
+
+
+
+def checaSeExistenoPontoMais(estaData):
+    print("Iniciando busca para confirmar se pessoa já existe no pontomais....")
+    cur = conn.cursor()
+    cur.execute("SELECT cpf, id_pessoa_metadados FROM colaboradores where id_pessoa_pontomais is NULL and data_admissao_meta>'{}'".format(estaData))
+
+    rows = cur.fetchall()
+
+    url = "https://api.pontomais.com.br/external_api/v1/employees/exists"
+
+    for esteColaborador in rows:
+        print("        ")
+        print("----- Buscando dados do colaborador {}".format(esteColaborador[1]))
+        esteCPF = esteColaborador[0]
+        esteIdMetadados = esteColaborador[1]
+        payload = json.dumps({
+            "employee": {
+                "cpf": "{}".format(esteCPF)
+            }
+        })
+        headers = {
+            'Content-Type': 'application/json',
+            'access-token': token_pontoMais
+        }
+
+        print("----- Buscando dados pela API...")
+        response = requests.request("POST", url, headers=headers, data=payload)
+
+        print("----- ....Retorno da API:")
+        print(response.text)
+        retorno_checaSeExiste= json.loads(response.text)
+        jaExiste = "0"
+
+        ###se não encontrar no pontomais, o retorno da API será um erro. Este erro é tratao aqui em baixo...
+        try:
+            if retorno_checaSeExiste['errors'] :
+                jaExiste = "0"
+        except:
+            if retorno_checaSeExiste['employees']:
+                jaExiste = retorno_checaSeExiste['employees'][0]['id']
+
+        if jaExiste=="0":
+            print("----- não existe no pontomaios.")
+        if jaExiste!="0":
+            sql_update = "UPDATE colaboradores set id_pessoa_pontomais='{}' WHERE  id_pessoa_metadados='{}'  and cpf='{}'".format(jaExiste,esteIdMetadados,esteCPF)
+            print("----- já existe no pontomais. Atualizando código do Colaborador no banco local... ==> {}".format(sql_update))
+            cur_update1 = conn.cursor()
+            cur_update1.execute(sql_update)
+            conn.commit()
+
+        print("----- Colaborador {} Finalizado.".format(esteColaborador[1]))
+        print("        ")
+    print("--->>> Todos as pessoas com número do pontoMais desconhecido foram procuradas.")
+    print("   ")
+    print("-- Fim da busca por codigos de colaborador no pontomais --")
+
+
+def enviaNovosColaboradores(estaData):
+    print("Iniciando envio de novos colaboradores para o pontomais.....")
+    sql_list_update = []
+    numEnvios = 0
+    cur = conn.cursor()
+    sql_busca_col_enviar = "select nome, cpf, CURRENT_DATE, SUBSTR(data_admissao_meta,1,10), id_pessoa_metadados, teams_pontomais, department_pontomais, business_unit_pontomais, centrocusto_pontomais, turno_pontomais,  (select id_pontomais from job_title where id_metadados=cargo_metadados), id_pessoa_pontomais, nis from colaboradores where id_pessoa_pontomais is null and  data_admissao_meta>'{}' order by id_pessoa_pontomais asc".format(estaData)
+    cur.execute(sql_busca_col_enviar)
+    print("SQL utilizado para busca de colaboradores a enviar: ")
+    print(sql_busca_col_enviar)
+    rows = cur.fetchall()
+    for colaborador in rows:
+        print("            ")
+        print("Numero do envio:{}".format(numEnvios))
+        numEnvios = numEnvios + 1
+
+        col_nome = colaborador[0]
+        col_cpf = colaborador[1]
+        col_hoje = colaborador[2]
+        col_admis = colaborador[3]
+        col_reg = colaborador[4]
+        col_teams = colaborador[5]
+        col_dpto = colaborador[6]
+        col_busunit = colaborador[7]
+        col_ccus = colaborador[8]
+        col_turno = colaborador[9]
+        col_cargo = colaborador[10]
+        col_nis = colaborador[12]
+        url = "https://api.pontomais.com.br/external_api/v1/employees"
+
+        payload = json.dumps({
+            "employee": {
+                "name": "{}".format(col_nome),
+                "registration_number": "{}".format(col_reg),
+                "cpf": "{}".format(col_cpf),
+                "is_clt": False,
+                "admission_date": "{}".format(col_admis),
+                "initial_date": "{}".format(col_hoje),
+                "shift_id": "{}".format(col_turno),
+                "job_title_id": "{}".format(col_cargo),
+                "cost_center_id": "{}".format(col_ccus),
+                "team_id": "{}".format(col_teams),
+                "live_abroad": False,
+                "login": "{}".format(col_nis),
+                "pin": "1234",
+                "active": "true",
+                "user": {
+                    "send_confirmation_email": "False",
+                    "group_id": "753879",
+                    "password": "Malke{}!".format(col_reg),
+                    "password_confirmation": "Malke{}!".format(col_reg),
+                    "active": "true",
+                    "admin": "false"
+                }
+            }
+        })
+        headers = {
+            'Content-Type': 'application/json',
+            'access-token': token_pontoMais
+        }
+
+        print("----- Enviando dados pela API...")
+        response = requests.request("POST", url, headers=headers, data=payload)
+
+        print("----- ....Retorno da API:")
+        print(response.text)
+        retorno_envia_novo= json.loads(response.text)
+
+        ## abaixo é feito um append na list para contornar a limitação do banco; sqlite não lida bem com multiplas referências simultaneas ao mesmo banco
+        try:
+            if retorno_envia_novo['id']:
+                id_pontomais = retorno_envia_novo['id']
+                sql_update2 = "UPDATE colaboradores set id_pessoa_pontomais='{}' WHERE  id_pessoa_metadados='{}'  and cpf='{}'".format(id_pontomais, col_reg, col_cpf)
+                print("=== ID no colaborador no pontomais: {}".format(id_pontomais))
+                print(" ====> {}".format(sql_update2))
+                sql_list_update.append(sql_update2)
+                #cur_update2 = conn2.cursor()
+                #cur_update2.execute(sql_update2)
+                #conn2.commit()
+        except:
+            print("   ")
+            print("!!!")
+            print("!!!")
+            print("XXX === falha no cadastro do ID no colaborador no pontomais / retorno diferente do esperado para o colaborador com código {} no metadados  ===  XXX".format(col_reg))
+            print("!!!")
+            print("!!!")
+            print("   ")
+        print("            ")
+
+    print("            ")
+    print("            ")
+    print("===")
+    print("Executando updates na tabela de colaboradores para salvar os IDs acima....")
+    for esteUpdate in sql_list_update:
+        cur_update2 = conn.cursor()
+        cur_update2.execute(esteUpdate)
+        conn.commit()
+
+    print(sql_list_update)
+    print("   ")
+    print("   ")
+    print("   ")
+    print("==============================")
+    print("==============================")
+    print("-- Fim do envio de colaboradores para o pontomais --")
+    print("==============================")
+
+
+def atualizaDadosColaboradores(estaData):
+    print("Iniciando atualização/finalização do usuário no pontomais...")
+    sql_list_update = []
+    numEnvios = 0
+    cur = conn.cursor()
+    cur.execute("select nome, cpf, CURRENT_DATE, SUBSTR(data_admissao_meta,1,10), id_pessoa_metadados, teams_pontomais, department_pontomais, "
+                "business_unit_pontomais, centrocusto_pontomais, turno_pontomais, cargo_pontomais, id_pessoa_pontomais, nis from colaboradores where id_pessoa_pontomais is not null and data_admissao_meta>'{}' order by id_pessoa_pontomais asc".format(estaData))
+
+    rows = cur.fetchall()
+    for colaborador in rows:
+        print("    ")
+        print("-- Colaborador encontrado...")
+
+        col_nome = colaborador[0]
+        col_cpf = colaborador[1]
+        col_hoje = colaborador[2]
+        col_admis = colaborador[3]
+        col_reg = colaborador[4]
+        col_teams = colaborador[5]
+        col_dpto = colaborador[6]
+        col_busunit = colaborador[7]
+        col_ccus = colaborador[8]
+        col_turno = colaborador[9]
+        col_cargo = colaborador[10]
+        col_id_pontomais = colaborador[11]
+        col_nis = colaborador[12]
+        url = "https://api.pontomais.com.br/external_api/v1/employees/{}".format(col_id_pontomais)
+
+        print("Numero do envio:{} ---- Colaborador: {}".format(numEnvios, col_id_pontomais))
+        numEnvios = numEnvios + 1
+
+        payload = json.dumps({
+            "employee": {
+                "time_card_source": "3",
+                "login": "{}".format(col_nis),
+                "pin": "1234",
+                "active": "true",
+                "use_qrcode": "true",
+                "client_preference_data": {
+                    "use_qrcode_pin": "false"
+                }
+            }
+        })
+
+        # payload = json.dumps({
+        #     "employee": {
+        #         "login": "{}".format(col_nis),
+        #         "pin": "1234",
+        #         "user": {
+        #             "email": "{}@sememail.com".format(col_nis),
+        #             "active": "true",
+        #             "admin": "false",
+        #             "group": {
+        #                 "id": "753879",
+        #                 "name": "Colaboradores"
+        #             }
+        #         }
+        #     }
+        # })
+
+        headers = {
+            'Content-Type': 'application/json',
+            'access-token': token_pontoMais
+        }
+
+        print("----- Enviando dados pela API...")
+        response = requests.request("PUT", url, headers=headers, data=payload)
+
+        print("------ Retorno:")
+        print(response.text)
+        print("--------------- (próximo)")
+        print("    ")
+    print("    ")
+    print(" Atualização/Finalização de usuários finalizada!  ")
+    print("    ")
+
+
+def cadastraUsuarioDoColaborador(estaData):
+    print("Iniciando geração do usuário para os novos funcionários no pontomais...")
+    sql_list_update = []
+    numEnvios = 0
+    cur = conn.cursor()
+    sql_usuarios_0 = "select nome, cpf, CURRENT_DATE, SUBSTR(data_admissao_meta,1,10), id_pessoa_metadados, teams_pontomais, department_pontomais, business_unit_pontomais, centrocusto_pontomais, turno_pontomais, cargo_pontomais, id_pessoa_pontomais, nis from colaboradores where id_pessoa_pontomais is not null and data_admissao_meta>'{}' order by id_pessoa_pontomais asc".format(estaData)
+    cur.execute(sql_usuarios_0)
+    print(sql_usuarios_0)
+    #print(cur)
+
+    rows = cur.fetchall()
+
+    #print(rows)
+
+    for colaborador in rows:
+        print("    ")
+        print("-- Colaborador encontrado...")
+        col_nome = colaborador[0]
+        col_cpf = colaborador[1]
+        col_hoje = colaborador[2]
+        col_admis = colaborador[3]
+        col_reg = colaborador[4]
+        col_teams = colaborador[5]
+        col_dpto = colaborador[6]
+        col_busunit = colaborador[7]
+        col_ccus = colaborador[8]
+        col_turno = colaborador[9]
+        col_cargo = colaborador[10]
+        col_id_pontomais = colaborador[11]
+        col_nis = colaborador[12]
+        url = "https://api.pontomais.com.br/external_api/v1/employees/{}/user?attributes=id,group,employee".format(col_id_pontomais)
+
+        print("Numero do envio:{} ---- Colaborador: {}".format(numEnvios, col_id_pontomais))
+        numEnvios = numEnvios + 1
+
+        payload = json.dumps({
+            "user": {
+                "send_confirmation_email": "False",
+                "group_id": "753879",
+                "password": "Malke{}!".format(col_id_pontomais),
+                "password_confirmation": "Malke{}!".format(col_id_pontomais),
+                "active": "true",
+                "admin": "false"
+            }
+        })
+        headers = {
+            'Content-Type': 'application/json',
+            'access-token': token_pontoMais
+        }
+
+        print("----- Criando usuário pela API...")
+        response = requests.request("POST", url, headers=headers, data=payload)
+
+        print("------ Retorno:")
+        print(response.text)
+        print("--------------- (próximo)")
+        print("    ")
+    print("    ")
+    print(" Criação de usuários finalizada!  ")
+    print("    ")
+
+def alteraEquipeDoColaborador(pessoaPontoMaisParaAtualizarEquipe):
+    numEnvios = 0
+    print("Iniciando alteração da equipe pontomais....")
+    for idPessoaPontoMaisParaAtualizarEquipe in pessoaPontoMaisParaAtualizarEquipe:
+        print(idPessoaPontoMaisParaAtualizarEquipe)
+        cur = conn.cursor()
+        sql_equipe_busca = "select nome, cpf, CURRENT_DATE, SUBSTR(data_admissao_meta,1,10), id_pessoa_metadados, teams_pontomais, department_pontomais, business_unit_pontomais, centrocusto_pontomais, turno_pontomais, cargo_pontomais, id_pessoa_pontomais, nis from colaboradores where id_pessoa_metadados='{}' order by id_pessoa_pontomais asc".format(idPessoaPontoMaisParaAtualizarEquipe)
+        cur.execute(sql_equipe_busca)
+        print(sql_equipe_busca)
+        rows = cur.fetchall()
+
+        for colaborador in rows:
+            print("    ")
+            print("-- Colaborador encontrado...")
+            numEnvios = numEnvios + 1
+            col_nome = colaborador[0]
+            col_cpf = colaborador[1]
+            col_hoje = colaborador[2]
+            col_admis = colaborador[3]
+            col_reg = colaborador[4]
+            col_teams = colaborador[5]
+            col_dpto = colaborador[6]
+            col_busunit = colaborador[7]
+            col_ccus = colaborador[8]
+            col_turno = colaborador[9]
+            col_cargo = colaborador[10]
+            col_id_pontomais = colaborador[11]
+            col_nis = colaborador[12]
+
+            print("Numero do envio:{} ---- Colaborador: {} - turma:{}".format(numEnvios, col_id_pontomais,col_teams))
+
+            url = "https://api.pontomais.com.br/external_api/v1/employees/{}/team_changes".format(col_id_pontomais)
+
+            payload = json.dumps({
+                "team_change": {
+                    "date": "{}".format(col_hoje),
+                    "team_id": "{}".format(col_teams)
+                }
+            })
+            headers = {
+                'Content-Type': 'application/json',
+                'access-token': token_pontoMais
+            }
+
+            print("----- Enviando dados pela API...")
+            response = requests.request("POST", url, headers=headers, data=payload)
+
+            print("------- Retorno:")
+            print(response.text)
+            print("--------------- (próximo)")
+            print("    ")
+        print("    ")
+        print(" Alteração de equipes finalizada!  ")
+        print("    ")
+
+def atualizaUnidadeDoColaboradorPuxandoDoMetadados():
+    id_pessoas_meta_a_atualizar = []
+    updates_meta_a_atualizar=[]
+    cursor = conn_rh.cursor()
+    cursor.execute(
+        "select A.PESSOA, C.CPF, C.NOME, A.UNIDADE, B.DESCRICAO20, A.DATAADMISSAO, A.CARGO, C.PIS FROM[dbo].[RHCONTRATOS] A  LEFT JOIN    RHUNIDADES    B    ON    B.UNIDADE = A.UNIDADE LEFT    JOIN    RHPESSOAS    C    ON    C.PESSOA = A.PESSOA    AND    C.EMPRESA = A.EMPRESA WHERE   A.DATARESCISAO    IS    NULL")
+    num_colaborador_print = 0
+    for row in cursor:
+        id_pessoa_meta = row[0]
+        cpf_meta = row[1]
+        nome_meta = row[2]
+        unidade_meta = row[3]
+        desc_unidade_meta = row[4]
+        dataadmissao_meta = row[5]
+        cargo_meta = row[6]
+        pis_meta = row[7]
+        cur = conn.cursor()
+        cur.execute("SELECT unidade_metadados, id_pessoa_metadados FROM colaboradores where id_pessoa_metadados='{}'".format(id_pessoa_meta))
+        rows_pu = cur.fetchall()
+        for estaPessoaUnidade in rows_pu:
+            print("id_pessoa_meta = {}; unidade meta = {}; unidade pontomais={}".format(id_pessoa_meta,unidade_meta,estaPessoaUnidade[0]))
+            if estaPessoaUnidade[0]!=unidade_meta:
+                num_colaborador_print = num_colaborador_print + 1
+                print("Até o momento, {} colaboradores com unidades no metadados / turmas diferentes no pontomais foram identificadas".format(num_colaborador_print))
+                id_pessoas_meta_a_atualizar.append(estaPessoaUnidade[1])
+                sql_update_pu = "UPDATE colaboradores set unidade_metadados='{}' WHERE  id_pessoa_metadados='{}'  and cpf='{}'".format(estaPessoaUnidade[0], id_pessoa_meta, cpf_meta)
+                updates_meta_a_atualizar.append(sql_update_pu)
+
+    for esteUpdate_pu in updates_meta_a_atualizar:
+        cur_update_pu = conn.cursor()
+        cur_update_pu.execute(esteUpdate_pu)
+        print(" -----> {}".format(esteUpdate_pu))
+        conn.commit()
+
+    for estaLinha in dicionario:
+        unidade_meta = estaLinha
+        businessunit_pm = dicionario[estaLinha]['unidade']
+        depto_pm = dicionario[estaLinha]['departamento']
+        team_pm = dicionario[estaLinha]['equipe']
+        ccusto_pm = '923560'
+        turno_pm = '1920029'
+        sql_update = "UPDATE colaboradores set business_unit_pontomais='{}', department_pontomais='{}', teams_pontomais='{}', centrocusto_pontomais='{}', turno_pontomais='{}'  WHERE  unidade_metadados='{}' ".format(
+            businessunit_pm, depto_pm, team_pm, ccusto_pm, turno_pm, unidade_meta)
+        print("==> {}".format(sql_update))
+        cur_update1 = conn.cursor()
+        cur_update1.execute(sql_update)
+        conn.commit()
+
+    print(id_pessoas_meta_a_atualizar)
+    alteraEquipeDoColaborador(id_pessoas_meta_a_atualizar)
+
+def alteraCargoDoColaborador():
+    sql_list_update = []
+    numEnvios = 0
+    cur = conn.cursor()
+    cur.execute("select nome, cpf, CURRENT_DATE, SUBSTR(data_admissao_meta,1,10), id_pessoa_metadados, teams_pontomais, department_pontomais, "
+                "business_unit_pontomais, centrocusto_pontomais, turno_pontomais,  (select id_pontomais from job_title where id_metadados=cargo_metadados), id_pessoa_pontomais, nis from colaboradores where id_pessoa_pontomais>0 and unidade_metadados>'0029' order by id_pessoa_pontomais asc")
+
+    rows = cur.fetchall()
+    for colaborador in rows:
+
+
+        col_nome = colaborador[0]
+        col_cpf = colaborador[1]
+        col_hoje = colaborador[2]
+        col_admis = colaborador[3]
+        col_reg = colaborador[4]
+        col_teams = colaborador[5]
+        col_dpto = colaborador[6]
+        col_busunit = colaborador[7]
+        col_ccus = colaborador[8]
+        col_turno = colaborador[9]
+        col_cargo = colaborador[10]
+        col_id_pontomais = colaborador[11]
+        col_nis = colaborador[12]
+
+        print("Numero do envio:{} ---- Colaborador: {} - turma:{}".format(numEnvios, col_id_pontomais,col_teams))
+        numEnvios = numEnvios + 1
+
+        url = "https://api.pontomais.com.br/external_api/v1/employees/{}/job_title_changes".format(col_id_pontomais)
+
+        payload = json.dumps({
+            "job_title_change": {
+                "date": "{}".format(col_hoje),
+                "motive": "3",
+                "job_title_id": "{}".format(col_cargo)
+            }
+        })
+
+        headers = {
+            'Content-Type': 'application/json',
+            'access-token': token_pontoMais
+        }
+
+        response = requests.request("POST", url, headers=headers, data=payload)
+
+        print(response.text)
+        print("=")
+
+
+def buscaEquipeMetadados():
+    cursor = conn_rh.cursor()
+    cursor.execute('select UNIDADE, DESCRICAO20 from RHUNIDADES where ATIVADESATIVADA = 1')
+
+    for row in cursor:
+        int_idmeta=row[0]
+        txt_nomemeta=row[1]
+        sql = "INSERT INTO team (id_metadados,nome_equipe) VALUES('{}','{}')".format(int_idmeta, txt_nomemeta)
+        cur = conn.cursor()
+        cur.execute(sql)
+        conn.commit()
+
+def buscaCargosMetadados():
+    cursor = conn_rh.cursor()
+    cursor.execute('select CARGO, DESCRICAOOFICIAL from RHCARGOS')
+
+    for row in cursor:
+        int_idmeta=row[0]
+        txt_cargometa=row[1]
+        sql = "INSERT INTO job_title (id_metadados,nome_cargo) VALUES('{}','{}')".format(int_idmeta, txt_cargometa)
+        cur = conn.cursor()
+        cur.execute(sql)
+        conn.commit()
+
+def buscaCargosPontoMais():
+    cur = conn.cursor()
+    cur.execute("SELECT id_metadados, nome_cargo FROM job_title where id_pontomais IS NULL")
+
+    rows = cur.fetchall()
+
+    iteracao = 0
+
+    for row in rows:
+        url = "https://api.pontomais.com.br/external_api/v1/job_titles"
+        payload = json.dumps({
+            "job_title": {
+                "code": row[0],
+                "name": row[1],
+            }
+        })
+        headers = {
+            'Content-Type': 'application/json',
+            'access-token': token_pontoMais
+        }
+        response = requests.request("POST", url, headers=headers, data=payload)
+        txt_ret = response.text
+        retorno_pontomais = json.loads(txt_ret)
+        print(retorno_pontomais)
+        retorno_id_pontomais = retorno_pontomais['id']
+
+        sql_update = "UPDATE job_title set id_pontomais='{}' WHERE  id_metadados='{}'  and nome_cargo='{}'".format(retorno_id_pontomais,row[0], row[1])
+        print("==> {}".format(sql_update))
+        cur_update1 = conn.cursor()
+        cur_update1.execute(sql_update)
+        conn.commit()
+        print("===  {} ===".format(iteracao))
+        iteracao = iteracao + 1
+
+def buscaRecisaoNoMetadados(estaData):
+    print("Inciando busca de dados de recisão")
+    cursor = conn_rh.cursor()
+    sql_a_executar="select A.PESSOA, C.CPF, C.NOME, A.UNIDADE, B.DESCRICAO20, A.DATAADMISSAO, A.CARGO, C.PIS, A.DATARESCISAO FROM[dbo].[RHCONTRATOS] A  LEFT JOIN    RHUNIDADES    B    ON    B.UNIDADE = A.UNIDADE LEFT    JOIN    RHPESSOAS    C    ON    C.PESSOA = A.PESSOA    AND    C.EMPRESA = A.EMPRESA WHERE A.DATARESCISAO>'{}' ".format(estaData)
+    cursor.execute(sql_a_executar)
+    print(sql_a_executar)
+    num_colaborador_print = 0
+    for row in cursor:
+        print("Pessoa Encontrada.")
+        print("=> Numero deste colaborador : {}".format(num_colaborador_print))
+        id_pessoa_meta = row[0]
+        cpf_meta = row[1]
+        nome_meta = row[2]
+        unidade_meta = row[3]
+        desc_unidade_meta = row[4]
+        dataadmissao_meta = row[5]
+        cargo_meta = row[6]
+        pis_meta = row[7]
+        recisao_meta=row[8]
+        sql_update_desl = "UPDATE colaboradores SET ativo='5', data_recisao='{}' WHERE id_pessoa_metadados='{}' and cpf='{}' and nis='{}'".format(recisao_meta,id_pessoa_meta,cpf_meta,pis_meta)
+        cur = conn.cursor()
+        cur.execute(sql_update_desl)
+        print("--> Atualizando tabela de colaboradores com o SQL:")
+        print(sql_update_desl)
+        conn.commit()
+        num_colaborador_print = num_colaborador_print + 1
+        print("---> Próximo....")
+        print("   ")
+        print("   ")
+    print("   ")
+    print("  -x-x-x-x- ")
+    print("   ")
+    print("Busca de desligamentos no metadados finalizada....")
+
+
+def transmiteDesligamentoPontoMais():
+    print("Iniciando transmissão de Desligamento do usuário no pontomais...")
+    sql_list_update = []
+    numEnvios = 0
+    cur = conn.cursor()
+    sql_busca_desl="select nome, cpf, CURRENT_DATE, SUBSTR(data_admissao_meta,1,10), id_pessoa_metadados, teams_pontomais, department_pontomais, business_unit_pontomais, centrocusto_pontomais, turno_pontomais, cargo_pontomais, id_pessoa_pontomais, nis from colaboradores where id_pessoa_pontomais is not null  and ativo='5'"
+    cur.execute(sql_busca_desl)
+    print(sql_busca_desl)
+
+    listaIdPessoasPontoMaisJaTransmitido = "'"
+
+    rows = cur.fetchall()
+    print(rows)
+    for colaborador in rows:
+        print("    ")
+        print("-- Colaborador encontrado...")
+
+        col_nome = colaborador[0]
+        col_cpf = colaborador[1]
+        col_hoje = colaborador[2]
+        col_admis = colaborador[3]
+        col_reg = colaborador[4]
+        col_teams = colaborador[5]
+        col_dpto = colaborador[6]
+        col_busunit = colaborador[7]
+        col_ccus = colaborador[8]
+        col_turno = colaborador[9]
+        col_cargo = colaborador[10]
+        col_id_pontomais = colaborador[11]
+        col_nis = colaborador[12]
+        url = "https://api.pontomais.com.br/external_api/v1/employees/{}/dismiss".format(col_id_pontomais)
+
+
+        print("Numero do envio:{} ---- Colaborador: {}".format(numEnvios, col_id_pontomais))
+        numEnvios = numEnvios + 1
+
+        payload = json.dumps({
+            "employee": {
+                "date": "{}".format(col_hoje),
+                "effective_date": "{}".format(col_hoje)
+            }
+        })
+
+        headers = {
+            'Content-Type': 'application/json',
+            'access-token': token_pontoMais
+        }
+
+        print("----- Enviando dados para API...")
+        response = requests.request("PUT", url, headers=headers, data=payload)
+
+        print("----- ....Retorno da API:")
+        print(response.text)
+        retorno_envia_novo = json.loads(response.text)
+
+
+
+        # abaixo é feito um append na list para contornar a limitação do banco; sqlite não lida bem com multiplas referências simultaneas ao mesmo banco
+        try:
+            if retorno_envia_novo['id']:
+                id_pontomais = retorno_envia_novo['id']
+                listaIdPessoasPontoMaisJaTransmitido = listaIdPessoasPontoMaisJaTransmitido + col_id_pontomais + "', '"
+        
+                sql_update2 = "UPDATE colaboradores set ativo='6' WHERE id_pessoa_pontomais='{}' and  id_pessoa_metadados='{}'  and cpf='{}'".format(col_id_pontomais, col_reg, col_cpf)
+                print("===  Montando query para desativar usuário no banco local: {}".format(col_id_pontomais))
+                print(" ====> {}".format(sql_update2))
+                print("   =====> Feitos até agora: id_pessoa_pontomais in ('{}')".format(listaIdPessoasPontoMaisJaTransmitido))
+                sql_list_update.append(sql_update2)
+                # cur_update2 = conn2.cursor()
+                # cur_update2.execute(sql_update2)
+                # conn2.commit()
+        except:
+            print("   ")
+            print("!!!")
+            print("!!!")
+            print(
+                "XXX === falha no desligamento do funcionário do pontomais / retorno diferente do esperado para o colaborador com código {} no metadados  ===  XXX".format(
+                    col_reg))
+            print("!!!")
+            print("!!!")
+            print("   ")
+        print("            ")
+        
+    print("            ")
+    print("            ")
+
+    print("===")
+    print("Executando updates na tabela de colaboradores para salvar os IDs acima....")
+    for esteUpdate in sql_list_update:
+        cur_update2 = conn.cursor()
+        cur_update2.execute(esteUpdate)
+        conn.commit()
+
+    print(sql_list_update)
+    print("   ")
+    print("    ")
+    print(" Desligamento de colaboradores finalizado!  ")
+    print("    ")
+
+
+def transmiteInativacaoUsuarioPontoMais():
+    print("Iniciando transmissão de inativação do usuário no pontomais...")
+    sql_list_update = []
+    numEnvios = 0
+    cur = conn.cursor()
+    sql_busca_desl="select nome, cpf, CURRENT_DATE, SUBSTR(data_admissao_meta,1,10), id_pessoa_metadados, teams_pontomais, department_pontomais, business_unit_pontomais, centrocusto_pontomais, turno_pontomais, cargo_pontomais, id_pessoa_pontomais, nis from colaboradores where id_pessoa_pontomais is not null  and ativo='6'"
+    cur.execute(sql_busca_desl)
+    print(sql_busca_desl)
+
+    listaIdPessoasPontoMaisJaTransmitido = "'"
+
+    rows = cur.fetchall()
+    print(rows)
+    for colaborador in rows:
+        print("    ")
+        print("-- Colaborador encontrado...")
+
+        col_nome = colaborador[0]
+        col_cpf = colaborador[1]
+        col_hoje = colaborador[2]
+        col_admis = colaborador[3]
+        col_reg = colaborador[4]
+        col_teams = colaborador[5]
+        col_dpto = colaborador[6]
+        col_busunit = colaborador[7]
+        col_ccus = colaborador[8]
+        col_turno = colaborador[9]
+        col_cargo = colaborador[10]
+        col_id_pontomais = colaborador[11]
+        col_nis = colaborador[12]
+
+        print("Numero do envio:{} ---- Colaborador: {}".format(numEnvios, col_id_pontomais))
+        numEnvios = numEnvios + 1
+
+        url2 = "https://api.pontomais.com.br/external_api/v1/employees/{}/user".format(col_id_pontomais)
+        payload2 = json.dumps({
+            "user": {
+                "active": "false"
+            }
+        })
+
+        headers2 = {
+            'Content-Type': 'application/json',
+            'access-token': token_pontoMais
+        }
+
+        print("----- Enviando inativação do usuário para API...")
+        response2 = requests.request("PUT", url2, headers=headers2, data=payload2)
+
+        print("----- ....Retorno da API:")
+        print(response2.text)
+
+        retorno_envia_novo = json.loads(response2.text)
+
+        # abaixo é feito um append na list para contornar a limitação do banco; sqlite não lida bem com multiplas referências simultaneas ao mesmo banco
+        try:
+            if retorno_envia_novo['id']:
+                id_pontomais = retorno_envia_novo['id']
+                listaIdPessoasPontoMaisJaTransmitido = listaIdPessoasPontoMaisJaTransmitido + col_id_pontomais + "', '"
+
+
+                sql_update2 = "UPDATE colaboradores set ativo='0' WHERE id_pessoa_pontomais='{}' and  id_pessoa_metadados='{}'  and cpf='{}'".format(col_id_pontomais, col_reg, col_cpf)
+                print("===  Desativando usuário no banco local: {}".format(col_id_pontomais))
+                print(" ====> {}".format(sql_update2))
+                print("   =====> Feitos até agora: id_pessoa_pontomais in ('{}')".format(listaIdPessoasPontoMaisJaTransmitido))
+                sql_list_update.append(sql_update2)
+        except:
+            print("   ")
+            print("!!!")
+            print("!!!")
+            print(
+                "XXX === falha na inativação de usuário no pontomais / retorno diferente do esperado para o colaborador com código {} no metadados  ===  XXX".format(
+                    col_reg))
+            print("!!!")
+            print("!!!")
+            print("   ")
+        print("            ")
+
+    print("            ")
+    print("            ")
+
+    print("===")
+    print("Executando updates na tabela de colaboradores para salvar os IDs acima....")
+    for esteUpdate in sql_list_update:
+        cur_update2 = conn.cursor()
+        cur_update2.execute(esteUpdate)
+        conn.commit()
+
+    print(sql_list_update)
+    print("   ")
+    print("    ")
+    print(" Inativação de usuários finalizada!  ")
+    print("    ")
+
+def ReTransmiteUsuariosInativosPontoMais():
+    print("Iniciando transmissão de inativação do usuário no pontomais...")
+    sql_list_update = []
+    numEnvios = 0
+    cur = conn.cursor()
+    sql_busca_desl="select nome, cpf, CURRENT_DATE, SUBSTR(data_admissao_meta,1,10), id_pessoa_metadados, teams_pontomais, department_pontomais, business_unit_pontomais, centrocusto_pontomais, turno_pontomais, cargo_pontomais, id_pessoa_pontomais, nis from colaboradores where id_pessoa_pontomais is not null  and ativo='0'"
+    cur.execute(sql_busca_desl)
+    print(sql_busca_desl)
+
+    listaIdPessoasPontoMaisJaTransmitido = "'"
+
+    rows = cur.fetchall()
+    print(rows)
+    for colaborador in rows:
+        print("    ")
+        print("-- Colaborador encontrado...")
+
+        col_nome = colaborador[0]
+        col_cpf = colaborador[1]
+        col_hoje = colaborador[2]
+        col_admis = colaborador[3]
+        col_reg = colaborador[4]
+        col_teams = colaborador[5]
+        col_dpto = colaborador[6]
+        col_busunit = colaborador[7]
+        col_ccus = colaborador[8]
+        col_turno = colaborador[9]
+        col_cargo = colaborador[10]
+        col_id_pontomais = colaborador[11]
+        col_nis = colaborador[12]
+
+        print("Numero do envio:{} ---- Colaborador: {}".format(numEnvios, col_id_pontomais))
+        numEnvios = numEnvios + 1
+
+        url2 = "https://api.pontomais.com.br/external_api/v1/employees/{}/user".format(col_id_pontomais)
+        payload2 = json.dumps({
+            "user": {
+                "active": "false"
+            }
+        })
+
+        headers2 = {
+            'Content-Type': 'application/json',
+            'access-token': token_pontoMais
+        }
+
+        print("----- Enviando inativação do usuário para API...")
+        response2 = requests.request("PUT", url2, headers=headers2, data=payload2)
+
+        print("----- ....Retorno da API:")
+        print(response2.text)
+
+        retorno_envia_novo = json.loads(response2.text)
+
+        # abaixo é feito um append na list para contornar a limitação do banco; sqlite não lida bem com multiplas referências simultaneas ao mesmo banco
+        try:
+            if retorno_envia_novo['id']:
+                id_pontomais = retorno_envia_novo['id']
+                listaIdPessoasPontoMaisJaTransmitido = listaIdPessoasPontoMaisJaTransmitido + col_id_pontomais + "', '"
+
+
+                sql_update2 = "UPDATE colaboradores set ativo='0' WHERE id_pessoa_pontomais='{}' and  id_pessoa_metadados='{}'  and cpf='{}'".format(col_id_pontomais, col_reg, col_cpf)
+                print("===  Desativando usuário no banco local: {}".format(col_id_pontomais))
+                print(" ====> {}".format(sql_update2))
+                print("   =====> Feitos até agora: id_pessoa_pontomais in ('{}')".format(listaIdPessoasPontoMaisJaTransmitido))
+                sql_list_update.append(sql_update2)
+        except:
+            print("   ")
+            print("!!!")
+            print("!!!")
+            print(
+                "XXX === falha na inativação de usuário no pontomais / retorno diferente do esperado para o colaborador com código {} no metadados  ===  XXX".format(
+                    col_reg))
+            print("!!!")
+            print("!!!")
+            print("   ")
+        print("            ")
+
+    print("            ")
+    print("            ")
+
+    print("===")
+    print("Executando updates na tabela de colaboradores para salvar os IDs acima....")
+    for esteUpdate in sql_list_update:
+        cur_update2 = conn.cursor()
+        cur_update2.execute(esteUpdate)
+        conn.commit()
+
+    print(sql_list_update)
+    print("   ")
+    print("    ")
+    print(" Inativação de usuários finalizada!  ")
+    print("    ")
+
+if __name__ == '__main__':
+    database = r"C:/Users/Ricardo/PycharmProjects/meus_relatorios/RH/pontomais/bd_pontomais.db"
+
+    conn = None
+    try:
+        conn = sqlite3.connect(database)
+    except Error as e:
+        print(e)
+
+
+    sql_create_team = "CREATE TABLE IF NOT EXISTS team ( id_pontomais integer NULL,  id_metadados text NULL, nome_equipe text NULL);"
+    sql_create_job_title = "CREATE TABLE IF NOT EXISTS job_title ( id_pontomais integer NULL,  id_metadados text NULL, nome_cargo text NULL);"
+    #sql_create_shift = "CREATE TABLE IF NOT EXISTS team ( id_pontomais integer NULL,  id_metadados text NULL, nome_equipe text NULL);"
+
+    # create tables
+    if conn is not None:
+        cur = conn.cursor()
+        cur.execute("select SUBSTR(max(data_admissao_meta),1,10), SUBSTR(max(data_recisao),1,10) from colaboradores")
+        rows = cur.fetchall()
+        for maxData in rows:
+            print("Data da última importação do metadados: {}".format(maxData[0]))
+            print("Data do último desligamento do metadados: {}".format(maxData[1]))
+            dataInput = input("Informe a data inicial para busca de dados do metadados (no formato AAAA-MM-DD). Sugiro colocar um dia a menos que o dia desejado:        ")
+            print("            ")
+            print("            ")
+
+        print("            ")
+        print("            ")
+        print("============")
+        print("============")
+        print("============")
+        print("Opções de ações disponíveis: ")
+        print("1 - Buscar Equipes no Metadados --> Utilizar caso seja cadastrada uma nova unidade no metadados. Este passo somente importa para tabela temporária do python. É preciso cadastrar manualmente no pontoMais, e obter o ID da equipe pela APi")
+        print("2 - Buscar Cargos no Metadados --> Utilizar caso seja cadatrado um novo cargo no metadados...............")
+        print("3 - Busca Cargos no PontoMais --> Utilizar para salvar na banco de dados local o ID de cada cargo do pontoMais.")
+
+        print("4 - Busca Novos Colaboradores no Metadados --> Importa para BD temporário todos os contratos ativos criados a partir da data informada.")
+        print("5 -Atualiza Equipes dos Colaboradores --> Somente para colaboradores já cadastrados no pontomais e cuja unidade tenha sido alterada no metadados.")
+        #print("5 - Checa se colaboradores já existem no PontoMais --> Busca ID de todos os colaboradores na BD temporária que não tenham o ID do pontoMais preenchido")
+        print("6 - Busca Deligamentos no Metadados e Transmite para pontomais  ")
+        print("7 - Retransmite a inativação de todos os usuários marcados como ativo='0' no BD temporário. (Utilizar caso usuários/funcionários inativos se re-ativem).")
+        print("8 - Altera Equipe do Colaborador no PontoMais")
+        print("9 - Altera Cargo do Colaborador no PontoMais")
+        x = input("Informe a opção desejada (1 a 9):")
+        if x==1:
+            buscaEquipeMetadados()
+        if x==2:
+            buscaCargosMetadados()
+        if x==3:
+            buscaCargosPontoMais()
+        if x=='4':
+            print("            ")
+            print("            ")
+            print("  ***   ")
+            print("  ***   ")
+            buscaColaboradoresNoMetadados(dataInput)
+            print("***********************************")
+            print("Fim da busca no metadados")
+            print("***********************************")
+            print("            ")
+            print("            ")
+            print("  ***   ")
+            print("  ***   ")
+            checaSeExistenoPontoMais(dataInput)
+            print("***********************************")
+            print("Fim da busca no pontomais")
+            print("***********************************")
+            print("            ")
+            print("            ")
+            print("  ***   ")
+            print("  ***   ")
+            enviaNovosColaboradores(dataInput)
+            print("***********************************")
+            print("Fim do envio dos dados iniciais dos colaboradores")
+            print("***********************************")
+            print("            ")
+            print("            ")
+            print("  ***   ")
+            print("  ***   ")
+            cadastraUsuarioDoColaborador(dataInput)
+            print("***********************************")
+            print("Fim do cadastramento de usuário no pontomais")
+            print("***********************************")
+            print("            ")
+            print("            ")
+            print("  ***   ")
+            print("  ***   ")
+            atualizaDadosColaboradores(dataInput)
+            print("***********************************")
+            print("Fim da transmissão de dados adicionais para pontomais")
+            print("***********************************")
+        if x=='5':
+            atualizaUnidadeDoColaboradorPuxandoDoMetadados()
+        if x=='6':
+            print("-- Preparando para transmitir informação de desligamento de funcionários para pontomais")
+            print("--> Abrindo busca de recisões no metadados......")
+            buscaRecisaoNoMetadados(dataInput)
+            print("   ")
+            print("   ")
+            print("***********************************")
+            print("--->Busca no Metadados Finalizada... ")
+            print("***********************************")
+            print("---->  Abrindo transmissão de recisões para o pontomais")
+            print("//////////\\\\\\\\\\\ ")
+            transmiteDesligamentoPontoMais()
+            print("   ")
+            print("   ")
+            print("***********************************")
+            print("----->Transmissão de Recisões Finalizada... ")
+            print("***********************************")
+            print("------> Abrindo inativação de usuários no pontomais")
+            transmiteInativacaoUsuarioPontoMais()
+            print("   ")
+            print("   ")
+            print("***********************************")
+            print("***********************************")
+            print("------->  Transmissão finalizada. ")
+            print("***********************************")
+            print("***********************************")
+        if x=='7':
+            ReTransmiteUsuariosInativosPontoMais()
+        if x=='9':
+            alteraCargoDoColaborador()
+        if x == '10':
+            transmiteDesligamentoPontoMais()
+
+
+        #create_table(conn, sql_create_team)
+        #create_table(conn, sql_create_job_title)
+        #create_table(conn, sql_create_shift)
+        #buscaEquipeMetadados()
+        #buscaCargosMetadados()
+        #buscaCargosPontoMais()
+
+        #alteraEquipeDoColaborador()
+        #alteraCargoDoColaborador()
+        #cadastraUsuarioDoColaborador()
+
+    else:
+        print("Error! cannot create the database connection.")
+
+#url = "https://api.pontomais.com.br/external_api/v1/business_units?page=1&per_page=30&attributes=id,name"
+#url = "https://api.pontomais.com.br/external_api/v1/employees?active=false&attributes=id,name&count=true&per_page=10&sort_direction=asc&sort_property=first_name"
+#url = "https://api.pontomais.com.br/external_api/v1/job_titles?attributes=id,name&count=true&per_page=10"
+####url = "https://api.pontomais.com.br/external_api/v1/job_titles?count=true&per_page=10"
+
+
+####
+#### url = "https://api.pontomais.com.br/external_api/v1/teams"
+
+####         payload = json.dumps({
+####           "team": {
+####             "code": "0004",
+####             "name": "Equipe 4",
+####             "observation": "",
+####             "leader_ids": []
+####           }
+####         })
+####         headers = {
+####         'Content-Type': 'application/json',
+####         'access-token': '{{client_token}}'
+####       }
+####
+####        response = requests.request("POST", url, headers=headers, data=payload)
+####
+####        print(response.text)
+####
+
+
+
+#TEAMS
+#url = "https://api.pontomais.com.br/external_api/v1/teams?count=true&per_page=10"
+#===> {"teams":[{"id":1074246,"created_at":1677172041,"updated_at":1677172041,"code":"0012","name":"Pomar Harmonia","business_unit":{"id":896388,"code":"12","name":"MALKE Filial Harmonia"},"department":{"id":966049,"code":"0012","name":"Poma Harmonia"},"observation":null,"cover_picture":{"url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/default.jpg","small_url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/small.jpg"},"leader_ids":[2985230],"leaders":[{"id":2985230,"name":"MILENA GEBERT BARBIERI","picture":{"url":"https://api.pontomais.com.br//images/default/employees/pictures/default_avatar.png","medium_url":"https://api.pontomais.com.br//images/default/employees/pictures/medium_avatar.png","small_url":"https://api.pontomais.com.br//images/default/employees/pictures/small_avatar.png"},"job_title":{"id":1324287,"name":"AUX ADM POMAR I"},"user":{"id":2770848,"group":{"id":753878,"name":"Administradores","client_id":879806,"deleted_at":null,"created_at":"2023-01-17T10:04:16.906-03:00","updated_at":"2023-01-17T10:04:16.906-03:00"}},"team_leader":{"id":2410253,"team_id":1074246,"employee_id":2985230,"deleted_at":null,"created_at":"2023-02-23T14:24:32.443-03:00","updated_at":"2023-02-23T14:24:32.443-03:00"}}],"client_preference":{"id":879183,"name":"Geral"},"employees_count":62},{"id":1074167,"created_at":1677165184,"updated_at":1677165184,"code":"0012","name":"Pomar Harmonia","business_unit":{"id":896388,"code":"12","name":"MALKE Filial Harmonia"},"department":{"id":966005,"code":"0012","name":"Pomar Harmonia"},"observation":"","cover_picture":{"url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/default.jpg","small_url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/small.jpg"},"leader_ids":[],"leaders":[],"client_preference":{"id":879183,"name":"Geral"},"employees_count":0},{"id":1075446,"created_at":1677270165,"updated_at":1677270165,"code":"0011","name":"Pomar Boaventura","business_unit":{"id":894512,"code":"11","name":"MALKE Filial Boaventura"},"department":{"id":965412,"code":"0011","name":"Pomar Boaventura"},"observation":null,"cover_picture":{"url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/default.jpg","small_url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/small.jpg"},"leader_ids":[],"leaders":[],"client_preference":{"id":879183,"name":"Geral"},"employees_count":2},{"id":1073379,"created_at":1677095122,"updated_at":1677095122,"code":"0011","name":"Pomar Boaventura","business_unit":{"id":894512,"code":"11","name":"MALKE Filial Boaventura"},"department":{"id":965412,"code":"0011","name":"Pomar Boaventura"},"observation":"","cover_picture":{"url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/default.jpg","small_url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/small.jpg"},"leader_ids":[2982630],"leaders":[{"id":2982630,"name":"TUANI BORGES DOS SANTOS","picture":{"url":"https://api.pontomais.com.br//images/default/employees/pictures/default_avatar.png","medium_url":"https://api.pontomais.com.br//images/default/employees/pictures/medium_avatar.png","small_url":"https://api.pontomais.com.br//images/default/employees/pictures/small_avatar.png"},"job_title":{"id":1298920,"name":"AUX. ADM POMAR"},"user":{"id":2768281,"group":{"id":753878,"name":"Administradores","client_id":879806,"deleted_at":null,"created_at":"2023-01-17T10:04:16.906-03:00","updated_at":"2023-01-17T10:04:16.906-03:00"}},"team_leader":{"id":2408901,"team_id":1073379,"employee_id":2982630,"deleted_at":null,"created_at":"2023-02-22T18:49:04.978-03:00","updated_at":"2023-02-22T18:49:04.978-03:00"}}],"client_preference":{"id":879183,"name":"Geral"},"employees_count":82},{"id":1051667,"created_at":1674586327,"updated_at":1674586327,"code":"7","name":"Canaã","business_unit":{"id":876844,"code":"0001","name":"Fruticultura Malke Ltda"},"department":{"id":949055,"code":"7","name":"Pomar Canaã"},"observation":null,"cover_picture":{"url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/default.jpg","small_url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/small.jpg"},"leader_ids":[],"leaders":[],"client_preference":{"id":879183,"name":"Geral"},"employees_count":178},{"id":1045411,"created_at":1673960654,"updated_at":1674500285,"code":"0007","name":"Canaã","business_unit":{"id":876844,"code":"0001","name":"Fruticultura Malke Ltda"},"department":{"id":944282,"code":"0001","name":"Geral"},"observation":null,"cover_picture":{"url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/default.jpg","small_url":"https://api.pontomais.com.br//images/default/teams/cover_pictures/small.jpg"},"leader_ids":[2868091],"leaders":[{"id":2868091,"name":"Grupo Malke","picture":{"url":"https://api.pontomais.com.br//images/default/employees/pictures/default_avatar.png","medium_url":"https://api.pontomais.com.br//images/default/employees/pictures/medium_avatar.png","small_url":"https://api.pontomais.com.br//images/default/employees/pictures/small_avatar.png"},"job_title":{"id":1291751,"name":"Gerente geral"},"user":{"id":2659459,"group":{"id":753878,"name":"Administradores","client_id":879806,"deleted_at":null,"created_at":"2023-01-17T10:04:16.906-03:00","updated_at":"2023-01-17T10:04:16.906-03:00"}},"team_leader":{"id":2342975,"team_id":1045411,"employee_id":2868091,"deleted_at":null,"created_at":"2023-01-17T10:04:21.147-03:00","updated_at":"2023-01-17T10:04:21.147-03:00"}}],"client_preference":{"id":879183,"name":"Geral"},"employees_count":1}],"meta":{"now":1678307268,"ip":"177.99.190.218","obfuscated":false,"count":6}}
+
+####payload={}
+####headers = {
+#### 'access-token': '$2a$12$A3Dyu0Lq0/eD3kv6L3NBQu9EfEIrLtrChM7Hh5jANRiNS7Zsz5YEm'
+####}
+
+####response = requests.request("GET", url, headers=headers, data=payload)
+
+####print(response.text)
+### retorno : {"business_units":[{"id":896388,"name":"MALKE Filial Harmonia"},{"id":894512,"name":"MALKE Filial Boaventura"},{"id":876844,"name":"Fruticultura Malke Ltda"}],"meta":{"now":1678305721,"ip":"177.99.190.218","obfuscated":false}}
+api.txt
+Exibindo api.txt…
